@@ -9,13 +9,14 @@ import numpy as np
 from numpy import linalg as la
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
 import csv
-import os 
+import os
+import rospkg 
 
 class pure_pursuit:
 
     def __init__(self):
 
-        self.LOOKAHEAD_DISTANCE = 1.20#1.70 # meters
+        self.LOOKAHEAD_DISTANCE = 0.70#1.70 # meters
         self.VELOCITY = 3.2 # m/s
         self.goal = 0
         self.read_waypoints()
@@ -28,17 +29,22 @@ class pure_pursuit:
 	#Publisher for the goal point
 	self.goal_pub = rospy.Publisher('/waypoint/goal', Point, queue_size=1)
 
-        rospy.Subscriber('/pf/viz/inferred_pose_fake', PoseStamped, self.callback, queue_size=1)
+        rospy.Subscriber("racecar_position_gazebo", PoseStamped, self.callback, queue_size=1)
 
     # Import waypoints.csv into a list (path_points)
     def read_waypoints(self):
 
-        dirname  = os.path.dirname(__file__)
-        #filename = os.path.join(dirname, '../waypoints/levine-waypoints.csv')
-	dir_path=os.path.dirname(os.path.realpath(__file__))
-        filename=dir_path+'/pure-pursuit-wp-2019-04-07-22-39-51.csv'
+
+        #filename='/home/musaup/Documents/catkin_ws/src/f110-fall2018-skeletons/labs/wall_following/logs/pure-pursuit-wp-2019-04-07-22-39-51.csv'
         #filename='/home/musaup/Documents/catkin_ws/src/f110-fall2018-skeletons/labs/wall_following/logs/pure-pursuit-wp-2019-04-08-02-28-24.csv'
         #filename = os.path.join(dirname, '../waypoints/levine-waypoints.csv')
+
+        
+        # get an instance of RosPack with the default search paths
+        rospack = rospkg.RosPack()
+        #get the path for this paackage
+        package_path=rospack.get_path('a_stars_pure_pursuit')
+        filename=package_path+'/waypoints/waypoints_1.csv'
 
         with open(filename) as f:
             path_points = [tuple(line) for line in csv.reader(f)]
@@ -48,6 +54,7 @@ class pure_pursuit:
         self.path_points_y   = [float(point[1]) for point in path_points]
         self.path_points_w   = [float(point[2]) for point in path_points]
 
+        #Initialize array of zeros with the same number of entries as the waypoint markers
         self.dist_arr= np.zeros(len(self.path_points_y))
 
    
@@ -87,8 +94,11 @@ class pure_pursuit:
         ##if the closest points array could not be formed, then the point which is closest to the current position is the goal. 
         
         for idx in goal_arr:
+            #line from the point position to the car position
             v1 = [self.path_points_x[idx]-x , self.path_points_y[idx]-y]
+            #since the euler was specified in the order x,y,z the angle is wrt to x axis
             v2 = [np.cos(yaw), np.sin(yaw)]
+            #find the angle between these two vectors NOTE:These are in world coordinates
             temp_angle = self.find_angle(v1,v2)
             if abs(temp_angle) < np.pi/2:
                 self.goal = idx
@@ -99,7 +109,7 @@ class pure_pursuit:
 
         L = self.dist_arr[self.goal]
 
-        ##Transforming the goal point into the vehicle coordinate frame 
+        ##Transforming the goal point into the vehicle coordinate frame (This come straight from the paper)
 
         gvcx = self.path_points_x[self.goal] - x
         gvcy = self.path_points_y[self.goal] - y 
@@ -113,12 +123,12 @@ class pure_pursuit:
 
         angle = angle_i*2
         angle = np.clip(angle, -0.4189, 0.4189) # 0.4189 radians = 24 degrees because car can only turn 24 degrees max
-
-        self.set_speed(angle)
-        #self.const_speed(angle)
+        print(angle)
+        #self.set_speed(angle)
+        self.const_speed(angle)
 
 	#publish the goal in the vehicle coordinates. 
-	goalPoint = Point(float(goal_x_veh_coord),float(goal_y_veh_coord),float(angle));
+	goalPoint = Point(float(goal_x_veh_coord),float(goal_y_veh_coord),float(angle))
 	self.goal_pub.publish(goalPoint)
 
         # print functions for DEBUGGING
@@ -152,9 +162,9 @@ class pure_pursuit:
 
     # USE THIS FUNCTION IF CONSTANT SPEED IS NEEDED
     def const_speed(self,angle):
-        self.LOOKAHEAD_DISTANCE = 2
+        #self.LOOKAHEAD_DISTANCE = 2
         self.msg.angle = angle
-        self.msg.velocity = self.VELOCITY
+        self.msg.velocity = 1.5#self.VELOCITY
 
     # find the angle bewtween two vectors    
     def find_angle(self, v1, v2):
